@@ -57,7 +57,9 @@ type Config struct {
 	AgentTimeout                 time.Duration
 	AgentRequired                bool
 	GeneratedSSHPublicKey        string
+	GeneratedPassword            string
 	StaticSSHPublicKeys          []string
+	OS                           string
 	Scheduler                    *scheduler.Scheduler
 	MemoryAllocationLimitPercent int
 	CPUAllocationLimitPercent    int
@@ -1147,6 +1149,72 @@ func (g *Group) Decrease(ctx context.Context, ids []string) ([]string, error) {
 	return deleted, errors.Join(errs...)
 }
 
+func (g *Group) Suspend(ctx context.Context, ids []string) ([]string, error) {
+	var succeeded []string
+	var errs []error
+
+	for _, id := range ids {
+		node, vmid, err := parseInstanceID(id)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+
+		g.setTransient(id, provider.StateSuspending)
+
+		upid, err := g.client.SuspendVM(ctx, node, vmid)
+		if err != nil {
+			g.clearTransient(id)
+			errs = append(errs, fmt.Errorf("suspend %s: %w", id, err))
+			continue
+		}
+
+		if err := g.client.WaitForTask(ctx, node, upid, g.cfg.TaskPollInterval); err != nil {
+			g.clearTransient(id)
+			errs = append(errs, fmt.Errorf("suspend %s: %w", id, err))
+			continue
+		}
+
+		g.clearTransient(id)
+		succeeded = append(succeeded, id)
+	}
+
+	return succeeded, errors.Join(errs...)
+}
+
+func (g *Group) Resume(ctx context.Context, ids []string) ([]string, error) {
+	var succeeded []string
+	var errs []error
+
+	for _, id := range ids {
+		node, vmid, err := parseInstanceID(id)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+
+		g.setTransient(id, provider.StateResuming)
+
+		upid, err := g.client.ResumeVM(ctx, node, vmid)
+		if err != nil {
+			g.clearTransient(id)
+			errs = append(errs, fmt.Errorf("resume %s: %w", id, err))
+			continue
+		}
+
+		if err := g.client.WaitForTask(ctx, node, upid, g.cfg.TaskPollInterval); err != nil {
+			g.clearTransient(id)
+			errs = append(errs, fmt.Errorf("resume %s: %w", id, err))
+			continue
+		}
+
+		g.clearTransient(id)
+		succeeded = append(succeeded, id)
+	}
+
+	return succeeded, errors.Join(errs...)
+}
+
 func (g *Group) Shutdown(ctx context.Context) error {
 	if g.cancelRun != nil {
 		g.cancelRun()
@@ -1182,7 +1250,9 @@ func (g *Group) ConnectInfo(ctx context.Context, id string, settings provider.Se
 
 	info := provider.ConnectInfo{ConnectorConfig: settings.ConnectorConfig}
 	info.ID = id
-	info.OS = "linux"
+	if info.OS == "" {
+		info.OS = "linux"
+	}
 	if info.Arch == "" {
 		info.Arch = "amd64"
 	}
@@ -1190,7 +1260,7 @@ func (g *Group) ConnectInfo(ctx context.Context, id string, settings provider.Se
 		info.Protocol = provider.ProtocolSSH
 	}
 	if info.ProtocolPort == 0 {
-		info.ProtocolPort = provider.DefaultProtocolPorts[provider.ProtocolSSH]
+		info.ProtocolPort = provider.DefaultProtocolPorts[info.Protocol]
 	}
 	if info.Username == "" {
 		if g.cfg.CIUser != "" {
@@ -1490,6 +1560,7 @@ func (g *Group) provisionOne(ctx context.Context, plan provisionPlan) (string, e
 		MemoryMB:           g.cfg.VMMemoryMB,
 		CPUCores:           g.cfg.VMCPUCores,
 		CIUser:             g.cfg.CIUser,
+		CIPassword:         g.cfg.GeneratedPassword,
 		SSHKeys:            sshKeys,
 		NameServer:         strings.Join(g.cfg.NameServers, " "),
 		SearchDomain:       g.cfg.SearchDomain,
@@ -1543,8 +1614,9 @@ func (g *Group) provisionOne(ctx context.Context, plan provisionPlan) (string, e
 			return err
 		}
 		if g.cfg.AgentRequired {
-			_, err := g.discoverIPAddress(startCtx, plan.Node, plan.VMID, lease.IP, g.cfg.AgentTimeout)
-			return err
+			if _, err := g.discoverIPAddress(startCtx, plan.Node, plan.VMID, lease.IP, g.cfg.AgentTimeout); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -2844,7 +2916,9 @@ func mapState(status string) provider.State {
 	switch status {
 	case "running":
 		return provider.StateRunning
-	case "stopped", "paused":
+	case "paused":
+		return provider.StateSuspended
+	case "stopped":
 		return provider.StateCreating
 	default:
 		return provider.StateCreating

@@ -248,11 +248,14 @@ func (c *pluginConfig) validate(settings provider.Settings) error {
 	if c.VMIDRange == "" {
 		errs = append(errs, fmt.Errorf("missing required plugin config: vmid_range"))
 	}
-	if settings.Protocol != "" && settings.Protocol != provider.ProtocolSSH {
-		errs = append(errs, fmt.Errorf("unsupported connector protocol: %s", settings.Protocol))
+	if settings.Protocol != "" {
+		if err := settings.Protocol.Valid(); err != nil {
+			errs = append(errs, fmt.Errorf("unsupported connector protocol: %s", settings.Protocol))
+		}
 	}
-	if settings.OS != "" && settings.OS != "linux" {
-		errs = append(errs, fmt.Errorf("unsupported connector OS: %s", settings.OS))
+	validOS := map[string]bool{"linux": true, "windows": true, "darwin": true}
+	if settings.OS != "" && !validOS[settings.OS] {
+		errs = append(errs, fmt.Errorf("unsupported connector OS: %s (supported: linux, windows, darwin)", settings.OS))
 	}
 	if c.CloneMode != "auto" && c.CloneMode != "linked" && c.CloneMode != "full" {
 		errs = append(errs, fmt.Errorf("invalid clone_mode: %s", c.CloneMode))
