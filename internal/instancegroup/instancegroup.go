@@ -1608,15 +1608,19 @@ func (g *Group) provisionOne(ctx context.Context, plan provisionPlan) (string, e
 		log.Info("start started", "phase", "start")
 		upid, err := g.client.StartVM(startCtx, plan.Node, plan.VMID)
 		if err != nil {
-			return err
+			return fmt.Errorf("StartVM API call: %w", err)
 		}
+		log.Info("start VM requested, waiting for task")
 		if err := g.client.WaitForTask(startCtx, plan.Node, upid, g.cfg.TaskPollInterval); err != nil {
-			return err
+			return fmt.Errorf("start task: %w", err)
 		}
+		log.Info("start task completed")
 		if g.cfg.AgentRequired {
+			log.Info("waiting for guest agent")
 			if _, err := g.discoverIPAddress(startCtx, plan.Node, plan.VMID, lease.IP, g.cfg.AgentTimeout); err != nil {
-				return err
+				return fmt.Errorf("guest agent discovery: %w", err)
 			}
+			log.Info("guest agent ready")
 		}
 		return nil
 	})
