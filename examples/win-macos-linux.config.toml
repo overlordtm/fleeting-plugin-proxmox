@@ -1,0 +1,202 @@
+concurrent = 9
+check_interval = 3
+shutdown_timeout = 300
+
+[session_server]
+  session_timeout = 1800
+
+[[runners]]
+  name = "proxmox-fleeting-macos"
+  url = "https://gitlab.example.com"
+  token = "RUNNER_TOKEN"
+  executor = "instance"
+  limit = 2
+  request_concurrency = 3
+  environment = ["PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/go/bin"]
+
+  [runners.cache]
+    Type = "s3"
+    Shared = true
+
+    [runners.cache.s3]
+        ServerAddress = "S3_IP:PORT"
+        AccessKey = "S3_ACCESS_KEY"
+        SecretKey = "S3_SECRET_KEY"
+        BucketName = "gitlab-runner-cache"
+        Insecure = true
+        AuthenticationType = "access-key"
+
+  [runners.autoscaler]
+    plugin = "fleeting-plugin-proxmox"
+    capacity_per_instance = 1
+    max_use_count = 1
+    max_instances = 2
+    instance_ready_command = "/usr/local/bin/macos-init status --wait"
+
+  [runners.autoscaler.plugin_config]
+    api_url = "https://pve.example.com:8006"
+    token_id = "gitlab-runner@pve!fleeting"
+    token_secret = "REDACTED"
+    tls_insecure_skip_verify = true
+    clone_timeout = "2m"
+    start_timeout = "5m"
+    
+    pool = "gitlab-runners"
+    nodes = ["pve2"]
+    template_vmids = [9000]
+    vmid_range = "1000-1099"
+
+    clone_mode = "linked"
+    network_mode = "dhcp"
+    name_prefix = "glr-macos"
+    ci_user = "ci_builder"
+
+    tags = ["gitlab-runner"]
+    description_template = "Managed by GitLab Runner; node={{ .Node }}; vmid={{ .VMID }}; ip={{ .IP }}"
+
+  [runners.autoscaler.connector_config]
+    os = "darwin"
+    protocol = "ssh"
+    protocol_port = 22
+    username = "ci_builder"
+    keepalive = "30s"
+    timeout = "120s"
+    use_external_addr = false
+
+  [[runners.autoscaler.policy]]
+    idle_count = 1
+    idle_time = "15m"
+    scale_factor = 0
+    preemptive_mode = false
+
+[[runners]]
+  name = "proxmox-fleeting-ubuntu2404"
+  url = "https://gitlab.example.com"
+  token = "RUNNER_TOKEN"
+  executor = "instance"
+  limit = 2
+  request_concurrency = 3
+  environment = ["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/usr/local/go/bin:/usr/local/bin"]
+
+  [runners.cache]
+    Type = "s3"
+    Shared = true
+
+    [runners.cache.s3]
+        ServerAddress = "S3_IP:PORT"
+        AccessKey = "S3_ACCESS_KEY"
+        SecretKey = "S3_SECRET_KEY"
+        BucketName = "gitlab-runner-cache"
+        Insecure = true
+        AuthenticationType = "access-key"
+
+  [runners.autoscaler]
+    plugin = "fleeting-plugin-proxmox"
+    capacity_per_instance = 1
+    max_use_count = 1
+    max_instances = 2
+    instance_ready_command = "cloud-init status --wait || test $? -eq 2"
+
+  [runners.autoscaler.plugin_config]
+    api_url = "https://pve.example.com:8006"
+    token_id = "gitlab-runner@pve!fleeting"
+    token_secret = "REDACTED"
+    tls_insecure_skip_verify = true
+    clone_timeout = "2m"
+    start_timeout = "5m"
+    
+    pool = "gitlab-runners"
+    nodes = ["pve2"]
+    template_vmids = [9100]
+    vmid_range = "1100-1199"
+
+    clone_mode = "linked"
+    network_mode = "dhcp"
+    name_prefix = "glr-ubuntu2404"
+    ci_user = "ci_builder"
+
+    tags = ["gitlab-runner"]
+    description_template = "Managed by GitLab Runner; node={{ .Node }}; vmid={{ .VMID }}; ip={{ .IP }}"
+
+  [runners.autoscaler.connector_config]
+    os = "linux"
+    protocol = "ssh"
+    protocol_port = 22
+    username = "ci_builder"
+    keepalive = "30s"
+    timeout = "120s"
+    use_external_addr = false
+
+  [[runners.autoscaler.policy]]
+    idle_count = 1
+    idle_time = "15m"
+    scale_factor = 0
+    preemptive_mode = false
+
+[[runners]]
+  name = "proxmox-fleeting-win11"
+  url = "https://gitlab.example.com"
+  token = "RUNNER_TOKEN"
+  executor = "instance"
+  shell = "powershell"
+  limit = 2
+  request_concurrency = 3
+  builds_dir = "E:\\builds"
+
+  [runners.feature_flags]
+    FF_USE_POWERSHELL_PATH_RESOLVER = true
+
+  [runners.cache]
+    Type = "s3"
+    Shared = true
+
+    [runners.cache.s3]
+        ServerAddress = "S3_IP:PORT"
+        AccessKey = "S3_ACCESS_KEY"
+        SecretKey = "S3_SECRET_KEY"
+        BucketName = "gitlab-runner-cache"
+        Insecure = true
+        AuthenticationType = "access-key"
+
+  [runners.autoscaler]
+    plugin = "fleeting-plugin-proxmox"
+    capacity_per_instance = 1
+    max_use_count = 1
+    max_instances = 2
+    instance_ready_command = "powershell -ExecutionPolicy Bypass -Command \"while ((Get-Service cloudbase-init).Status -eq 'Running') { Start-Sleep -Seconds 5 }\""
+
+  [runners.autoscaler.plugin_config]
+    api_url = "https://pve.example.com:8006"
+    token_id = "gitlab-runner@pve!fleeting"
+    token_secret = "REDACTED"
+    tls_insecure_skip_verify = true
+    clone_timeout = "2m"
+    start_timeout = "5m"
+    
+    pool = "gitlab-runners"
+    nodes = ["pve2"]
+    template_vmids = [9201]
+    vmid_range = "1200-1299"
+
+    clone_mode = "linked"
+    network_mode = "dhcp"
+    name_prefix = "glr-win11"
+    ci_user = "ci_builder"
+
+    tags = ["gitlab-runner"]
+    description_template = "Managed by GitLab Runner; node={{ .Node }}; vmid={{ .VMID }}; ip={{ .IP }}"
+
+  [runners.autoscaler.connector_config]
+    os = "windows"
+    protocol = "winrm"
+    protocol_port = 5985
+    username = "ci_builder"
+    keepalive = "30s"
+    timeout = "300s"
+    use_external_addr = false
+
+  [[runners.autoscaler.policy]]
+    idle_count = 1
+    idle_time = "15m"
+    scale_factor = 0
+    preemptive_mode = false
