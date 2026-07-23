@@ -16,19 +16,20 @@ import (
 )
 
 const (
-	defaultCloneMode         = "auto"
-	defaultNetworkMode       = "static"
-	defaultTemplateStageMode = "auto"
-	defaultTaskPollInterval  = 2 * time.Second
-	defaultCloneTimeout      = 10 * time.Minute
-	defaultStartTimeout      = 5 * time.Minute
-	defaultShutdownTimeout   = 2 * time.Minute
-	defaultAgentTimeout      = 3 * time.Minute
-	defaultIPReuseCooldown   = 0 * time.Second
-	defaultMetricsInterval   = 15 * time.Second
-	defaultStateDir          = "/var/lib/fleeting-plugin-proxmox"
-	defaultStateFileBasename = "state.json"
-	managedByTag             = "managed-by-fleeting-plugin-proxmox"
+	defaultCloneMode          = "auto"
+	defaultNetworkMode        = "static"
+	defaultTemplateStageMode  = "auto"
+	defaultTaskPollInterval   = 2 * time.Second
+	defaultCloneTimeout       = 10 * time.Minute
+	defaultStartTimeout       = 5 * time.Minute
+	defaultShutdownTimeout    = 2 * time.Minute
+	defaultAgentTimeout       = 3 * time.Minute
+	defaultAPIRetryMaxElapsed = 30 * time.Second
+	defaultIPReuseCooldown    = 0 * time.Second
+	defaultMetricsInterval    = 15 * time.Second
+	defaultStateDir           = "/var/lib/fleeting-plugin-proxmox"
+	defaultStateFileBasename  = "state.json"
+	managedByTag              = "managed-by-fleeting-plugin-proxmox"
 )
 
 type vmidRange struct {
@@ -75,12 +76,13 @@ type pluginConfig struct {
 	MaxParallelStarts  int `json:"max_parallel_starts"`
 	MaxParallelDeletes int `json:"max_parallel_deletes"`
 
-	TaskPollInterval string `json:"task_poll_interval"`
-	CloneTimeout     string `json:"clone_timeout"`
-	StartTimeout     string `json:"start_timeout"`
-	ShutdownTimeout  string `json:"shutdown_timeout"`
-	MetricsSocket    string `json:"metrics_socket"`
-	MetricsInterval  string `json:"metrics_interval"`
+	TaskPollInterval   string `json:"task_poll_interval"`
+	CloneTimeout       string `json:"clone_timeout"`
+	StartTimeout       string `json:"start_timeout"`
+	ShutdownTimeout    string `json:"shutdown_timeout"`
+	APIRetryMaxElapsed string `json:"api_retry_max_elapsed"`
+	MetricsSocket      string `json:"metrics_socket"`
+	MetricsInterval    string `json:"metrics_interval"`
 
 	NetworkMode  string        `json:"network_mode"`
 	CIUser       string        `json:"ci_user"`
@@ -102,18 +104,19 @@ type pluginConfig struct {
 	Tags                LaxStringList `json:"tags"`
 	DescriptionTemplate string        `json:"description_template"`
 
-	parsedVMIDRange         vmidRange
-	parsedTemplateVMIDRange vmidRange
-	parsedTaskPoll          time.Duration
-	parsedCloneTimeout      time.Duration
-	parsedStartTimeout      time.Duration
-	parsedShutdownTimeout   time.Duration
-	parsedAgentTimeout      time.Duration
-	parsedIPReuseCooldown   time.Duration
-	parsedMetricsInterval   time.Duration
-	parsedPoolPrefix        netip.Prefix
-	parsedGateway           netip.Addr
-	agentRequiredSet        bool
+	parsedVMIDRange          vmidRange
+	parsedTemplateVMIDRange  vmidRange
+	parsedTaskPoll           time.Duration
+	parsedCloneTimeout       time.Duration
+	parsedStartTimeout       time.Duration
+	parsedShutdownTimeout    time.Duration
+	parsedAgentTimeout       time.Duration
+	parsedAPIRetryMaxElapsed time.Duration
+	parsedIPReuseCooldown    time.Duration
+	parsedMetricsInterval    time.Duration
+	parsedPoolPrefix         netip.Prefix
+	parsedGateway            netip.Addr
+	agentRequiredSet         bool
 }
 
 type nodePolicyConfig struct {
@@ -197,6 +200,9 @@ func (c *pluginConfig) applyDefaults(settings provider.Settings) {
 	}
 	if c.ShutdownTimeout == "" {
 		c.ShutdownTimeout = defaultShutdownTimeout.String()
+	}
+	if c.APIRetryMaxElapsed == "" {
+		c.APIRetryMaxElapsed = defaultAPIRetryMaxElapsed.String()
 	}
 	if c.MetricsSocket != "" && c.MetricsInterval == "" {
 		c.MetricsInterval = defaultMetricsInterval.String()
@@ -345,6 +351,7 @@ func (c *pluginConfig) validate(settings provider.Settings) error {
 	c.parsedStartTimeout = parsePositiveDurationField("start_timeout", c.StartTimeout, &errs)
 	c.parsedShutdownTimeout = parsePositiveDurationField("shutdown_timeout", c.ShutdownTimeout, &errs)
 	c.parsedAgentTimeout = parsePositiveDurationField("agent_timeout", c.AgentTimeout, &errs)
+	c.parsedAPIRetryMaxElapsed = parseNonNegativeDurationField("api_retry_max_elapsed", c.APIRetryMaxElapsed, &errs)
 	c.parsedIPReuseCooldown = parseNonNegativeDurationField("ip_pool_reuse_cooldown", c.IPPoolReuseCooldown, &errs)
 	if c.MetricsSocket != "" {
 		c.parsedMetricsInterval = parsePositiveDurationField("metrics_interval", c.MetricsInterval, &errs)

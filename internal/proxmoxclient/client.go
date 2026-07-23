@@ -28,12 +28,16 @@ type Config struct {
 	TLSCAFile          string
 	InsecureSkipVerify bool
 	AllowedServerNames []string
+	// RetryMaxElapsed bounds how long an idempotent read is retried when it fails with a
+	// transient network/DNS/5xx error. Zero disables retries.
+	RetryMaxElapsed time.Duration
 }
 
 type Client struct {
 	baseURL    *url.URL
 	httpClient *http.Client
 	authHeader string
+	retry      RetryPolicy
 }
 
 type envelope[T any] struct {
@@ -415,6 +419,7 @@ func New(cfg Config) (*Client, error) {
 			},
 		},
 		authHeader: fmt.Sprintf("PVEAPIToken=%s=%s", cfg.TokenID, cfg.TokenSecret),
+		retry:      NewRetryPolicy(cfg.RetryMaxElapsed),
 	}, nil
 }
 
@@ -653,9 +658,14 @@ func (c *Client) WaitForTask(ctx context.Context, node, upid string, pollInterva
 	for {
 		status, err := c.GetTaskStatus(ctx, node, upid)
 		if err != nil {
-			return err
-		}
-		if status.Status == "stopped" {
+			// The Proxmox task keeps running server-side, so a transient error while
+			// polling must not be mistaken for task failure. Keep polling until the task
+			// reports completion or the context (phase timeout) is exhausted; bail only on
+			// a terminal error.
+			if !IsRetryable(err) {
+				return err
+			}
+		} else if status.Status == "stopped" {
 			if status.ExitStatus != "" && status.ExitStatus != "OK" {
 				return fmt.Errorf("task %s failed: %s", upid, status.ExitStatus)
 			}
@@ -687,19 +697,23 @@ func (c *Client) getWithQuery(ctx context.Context, p string, query url.Values, o
 	u.Path = path.Join(c.baseURL.Path, "/api2/json", p)
 	u.RawQuery = query.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", c.authHeader)
+	// GETs are idempotent, so transient network/DNS/5xx failures are retried within the
+	// configured budget. The request is rebuilt each attempt.
+	return Retry(ctx, c.retry, func(ctx context.Context) error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", c.authHeader)
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
 
-	return decodeResponse(resp, out)
+		return decodeResponse(resp, out)
+	})
 }
 
 func (c *Client) postString(ctx context.Context, p string, form url.Values) (string, error) {
@@ -770,7 +784,7 @@ func decodeResponse(resp *http.Response, out any) error {
 		if resp.StatusCode == http.StatusNotFound {
 			return fmt.Errorf("%w: %s", ErrNotFound, proxmoxAPIErrorDetails(resp, body))
 		}
-		return fmt.Errorf("proxmox api error: %s", proxmoxAPIErrorDetails(resp, body))
+		return &APIError{StatusCode: resp.StatusCode, Details: proxmoxAPIErrorDetails(resp, body)}
 	}
 
 	var raw envelope[json.RawMessage]

@@ -111,6 +111,7 @@ With `template_stage_mode` enabled, the plugin works around the Proxmox limitati
 | `clone_timeout` | duration string | no | `10m` | Timeout for clone operations. |
 | `start_timeout` | duration string | no | `5m` | Timeout for VM start and readiness wait. |
 | `shutdown_timeout` | duration string | no | `2m` | Timeout for stop-and-delete task completion during instance removal. |
+| `api_retry_max_elapsed` | duration string | no | `30s` | Time budget for retrying an idempotent Proxmox API read (task polling, config/status/list) through transient network/DNS/5xx failures. `0` disables retries. Prevents a brief blip from being mistaken for a clone failure and from stranding a VM during rollback. |
 | `metrics_socket` | path string | no |  | Unix socket used to publish metrics snapshots to a local `metrics-exporter` process. Empty disables metrics. |
 | `metrics_interval` | duration string | no | `15s` when `metrics_socket` is set | Interval for publishing metrics snapshots. |
 

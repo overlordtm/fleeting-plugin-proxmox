@@ -87,6 +87,7 @@ func (g *InstanceGroup) Init(ctx context.Context, log hclog.Logger, settings pro
 		TLSCAFile:          g.TLSCAFile,
 		InsecureSkipVerify: g.TLSInsecureSkipVerify,
 		AllowedServerNames: []string(g.Nodes),
+		RetryMaxElapsed:    g.parsedAPIRetryMaxElapsed,
 	})
 	if err != nil {
 		return g.failInit(err)

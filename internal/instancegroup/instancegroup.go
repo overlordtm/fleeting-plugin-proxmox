@@ -1479,9 +1479,16 @@ func (g *Group) provisionOne(ctx context.Context, plan provisionPlan) (string, e
 	rollback := func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), g.cfg.CloneTimeout)
 		defer cancel()
-		if err := g.safeDestroyProvisioningVM(cleanupCtx, plan.Node, plan.VMID, fmt.Sprintf("%s-%d", g.cfg.NamePrefix, plan.VMID)); err != nil {
-			log.Error("provisioning cleanup failed", "phase", "cleanup", "error", err)
-			g.reportPlanProblem(plan, "cleanup_failed", metrics.ProblemRecent, "cleanup", err, time.Time{})
+		// safeDestroyProvisioningVM is idempotent, so retry it through transient
+		// network/DNS blips: the outage that caused the failure often also blocks the
+		// cleanup that would otherwise strand the VM.
+		expectedName := fmt.Sprintf("%s-%d", g.cfg.NamePrefix, plan.VMID)
+		cleanupErr := proxmoxclient.Retry(cleanupCtx, proxmoxclient.NewRetryPolicy(g.cfg.CloneTimeout), func(ctx context.Context) error {
+			return g.safeDestroyProvisioningVM(ctx, plan.Node, plan.VMID, expectedName)
+		})
+		if cleanupErr != nil {
+			log.Error("provisioning cleanup failed", "phase", "cleanup", "error", cleanupErr)
+			g.reportPlanProblem(plan, "cleanup_failed", metrics.ProblemRecent, "cleanup", cleanupErr, time.Time{})
 		}
 		if g.pool != nil {
 			// Failed provisioning must not leave leases behind or put them into reuse cooldown.
